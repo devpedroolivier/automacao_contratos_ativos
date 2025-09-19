@@ -1,56 +1,59 @@
-# main.py — login simples no SGC Sabesp (1 arquivo)
+# main.py — acesso + exportar excel no SGC (com download salvo)
+import os
 from playwright.sync_api import sync_playwright, TimeoutError
 
 URL   = "https://sgc.sabesp.com.br"
 USER  = "Lcgaraujo"
 PASS  = "352268@Sabesp2025+"
 
+DOWNLOAD_DIR = "downloads"
+OUTPUT_FILE  = os.path.join(DOWNLOAD_DIR, "contratos.xlsx")
+
 def run():
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)  # mude p/ True se quiser
-        # 1) Tenta autenticação via popup do navegador (HTTP Basic/Negotiate)
+        browser = p.chromium.launch(headless=False)
         context = browser.new_context(
             http_credentials={"username": USER, "password": PASS},
-            ignore_https_errors=True
+            ignore_https_errors=True,
+            accept_downloads=True
         )
         page = context.new_page()
 
-        # Se aparecer alert() JS, aceitar automaticamente
+        # aceitar automaticamente alert() se aparecer
         page.on("dialog", lambda d: d.accept())
 
         try:
-            page.goto(URL, wait_until="domcontentloaded")
-            # 2) Fallback rápido: se houver formulário na página, tenta preencher
-            try:
-                # Se existir campo de senha, tentamos preencher usuário e senha
-                pwd_field = page.locator("input[type='password']").first
-                if pwd_field.count():
-                    # tenta achar o campo de usuário por heurística comum
-                    user_field = page.locator(
-                        "input[type='text'], input[type='email'], "
-                        "input[name*='user' i], input[name*='login' i], "
-                        "input[id*='user' i], input[id*='login' i]"
-                    ).first
-                    if user_field.count():
-                        user_field.fill(USER)
-                        pwd_field.fill(PASS)
-                        submit = page.locator(
-                            "button[type='submit'], input[type='submit'], "
-                            "button:has-text('Entrar'), button:has-text('Acessar')"
-                        ).first
-                        if submit.count():
-                            submit.click()
-            except Exception:
-                # Sem drama: se não for formulário, seguimos com o que já deu certo
-                pass
+            print("➡️ Acessando site...")
+            page.goto(URL, wait_until="load", timeout=60000)
 
-            page.wait_for_timeout(2000)  # só pra visualizar
-            page.screenshot(path="home.png", full_page=True)
-            print("OK: Acesso realizado. Screenshot salvo em home.png")
+            # aguarda a lista de ativos e clica
+            print("➡️ Clicando em Lista de Ativos...")
+            page.wait_for_selector(
+                "body > div > app-resumos > div > div.col-sm-12.col-md-10 > div:nth-child(1) > app-contratos > div.cards-container > app-pie-resumo:nth-child(2) > div > div > a",
+                timeout=60000
+            )
+            page.click("body > div > app-resumos > div > div.col-sm-12.col-md-10 > div:nth-child(1) > app-contratos > div.cards-container > app-pie-resumo:nth-child(2) > div > div > a")
+
+            # abre menu exportar
+            print("➡️ Abrindo menu de exportação...")
+            page.wait_for_selector("#dropdownExportar", timeout=60000)
+            page.click("#dropdownExportar")
+
+            # espera pelo download ao clicar no botão
+            print("➡️ Exportando para Excel...")
+            with page.expect_download() as download_info:
+                page.click("body > div > app-lista-contratos > div > div > div:nth-child(2) > dx-data-grid > div > div.dx-datagrid-header-panel > div > div > div.dx-toolbar-after > div:nth-child(3) > div > div.dropdown-menu-config.dropdown-menu.dropdown-menu-right.dropdown-menu-excel.show > div > a")
+
+            download = download_info.value
+            download.save_as(OUTPUT_FILE)
+
+            print(f"✅ Exportação concluída! Arquivo salvo em: {OUTPUT_FILE}")
 
         except TimeoutError:
-            page.screenshot(path="erro_timeout.png", full_page=True)
-            print("Timeout. Screenshot salvo em erro_timeout.png")
+            print("⛔ Timeout ao esperar algum seletor.")
+            page.screenshot(path="erro.png", full_page=True)
         finally:
             context.close()
             browser.close()
