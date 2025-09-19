@@ -1,4 +1,4 @@
-# main.py — acesso + exportar excel no SGC (com download salvo)
+# main.py — acesso + exportar excel no SGC (com download salvo + tela maximizada)
 import os
 from playwright.sync_api import sync_playwright, TimeoutError
 
@@ -14,12 +14,18 @@ def run():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
+
+        # Cria contexto com tela "maximizada"
+        # None => usa resolução da tela do host
         context = browser.new_context(
             http_credentials={"username": USER, "password": PASS},
             ignore_https_errors=True,
-            accept_downloads=True
+            accept_downloads=True,
+            viewport=None  # <= aqui é o truque
         )
+
         page = context.new_page()
+        page.bring_to_front()
 
         # aceitar automaticamente alert() se aparecer
         page.on("dialog", lambda d: d.accept())
